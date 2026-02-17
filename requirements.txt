@@ -1,0 +1,7 @@
+pandas
+openpyxl
+scikit-learn
+xgboost
+joblib
+fastapi
+uvicorn
