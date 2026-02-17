@@ -1,7 +1,7 @@
-.venv/
-data/
-artifacts/
-*.joblib
+.venv
+__pycache__
+.git
+data
 *.xlsx
-__pycache__/
 .DS_Store
+

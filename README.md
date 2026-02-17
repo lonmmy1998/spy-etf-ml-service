@@ -1,6 +1,6 @@
 # SPY ETF ML Service (1d / 5d / 20d) — XGBoost + FastAPI
 
-這個專案把「訓練模型」和「提供 API 服務」做成一套可交付流程：
+這個專案把「訓練模型」和「提供 API 服務」做成一套流程：
 
 - 用 SPY 的歷史特徵（技術指標 + 宏觀因子）訓練 XGBoost
 - 產出 3 個 horizon 的模型（1d / 5d / 20d）
@@ -95,3 +95,29 @@ rows 空：rows 不能是空的
 缺少特徵欄：缺少特徵欄位：[ ... ]
 日期格式錯：日期格式錯誤，請用 YYYY-MM-DD
 特徵非數值：特徵欄位需為數值...
+
+## Run with Docker (no Excel required)
+
+This service loads trained models from `./artifacts` (mounted into the container).
+Make sure you have `artifacts/model_spy_{1d,5d,20d}.joblib` on your machine.
+
+### Train models (creates artifacts/)
+
+python train.py
+
+Start API
+
+docker compose up --build
+
+Swagger UI:
+http://127.0.0.1:8000/docs
+
+Example request (curl)
+
+curl -s -X POST http://127.0.0.1:8000/predict \
+  -H "Content-Type: application/json" \
+  --data-binary @examples/request.json
+
+---
+
+{"prob_1d":0.4382048547267914,"label_1d":0,"prob_5d":0.23376493155956268,"label_5d":0,"prob_20d":0.32140809297561646,"label_20d":0}

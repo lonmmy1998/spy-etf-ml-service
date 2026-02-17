@@ -4,6 +4,7 @@ import pandas as pd
 from pydantic import BaseModel
 from typing import List, Dict, Any
 from fastapi import HTTPException
+import traceback
 
 
 app = FastAPI()
@@ -58,18 +59,8 @@ def health():
 
 @app.get("/predict_last")
 def predict_last():
-    df = pd.read_excel("data/etf.xlsx", sheet_name="SPY")
-    x = df.drop(columns=cols_not_features)
-    x_last = x[feature_cols].iloc[[-1]]
-
-    p1 = float(models["1d"].predict_proba(x_last)[0, 1])
-    p5 = float(models["5d"].predict_proba(x_last)[0, 1])
-    p20 = float(models["20d"].predict_proba(x_last)[0, 1])
-
     return {
-        "prob_1d": p1, "label_1d": int(p1 >= 0.5),
-        "prob_5d": p5, "label_5d": int(p5 >= 0.5),
-        "prob_20d": p20, "label_20d": int(p20 >= 0.5),
+        "message": "This endpoint is disabled in Docker mode. Use POST /predict with JSON rows."
     }
 
 
@@ -78,49 +69,57 @@ def predict_last():
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(req: PredictRequest = Body(..., example=EXAMPLE_PAYLOAD)):
-    # rows 不能為空
-    if not req.rows:
-        raise HTTPException(status_code=400, detail="rows 不能是空的")
-
-    # 把 JSON 的 rows 轉成 dataframe
-    df_in = pd.DataFrame(req.rows)
-
-    # 必要檢查欄位：日期一定要有
-    if "日期" not in df_in.columns:
-        raise HTTPException(status_code=400, detail="缺少必要欄位：日期")
-
-    # 檢查特徵欄位是否齊全(以 feature_cols 為準)
-    missing = [c for c in feature_cols if c not in df_in.columns]
-    if missing:
-        raise HTTPException(status_code=400, detail=f"缺少特徵欄位：{missing}")
-
-    # 日期轉換，失敗就回 400
     try:
-        df_in["日期"] = pd.to_datetime(df_in["日期"])
-    except Exception:
-        raise HTTPException(status_code=400, detail="日期格式錯誤，請用 YYYY-MM-DD")
+        # rows 不能為空
+        if not req.rows:
+            raise HTTPException(status_code=400, detail="rows 不能是空的")
 
-    # 排序＋前值填補
-    df_in = df_in.sort_values("日期").ffill()
+        # 把 JSON 的 rows 變成 dataframe
+        df_in = pd.DataFrame(req.rows)
 
-    # 取特徵並確保欄位順序一致
-    x_in = df_in[feature_cols].copy()
+        # 必要欄位檢查：日期一定要有
+        if "日期" not in df_in.columns:
+            raise HTTPException(status_code=400, detail="缺少必要欄位：日期")
 
-    # 把所有特徵轉成數字
-    try:
-        x_in = x_in.apply(pd.to_numeric, errors="raise")
-    except Exception:
-        raise HTTPException(status_code=400, detail="特徵欄位需為數值，偵測到無法轉成數字內容")
+        # 檢查特徵欄位是否齊全（以 feature_cols 為準）
+        missing = [c for c in feature_cols if c not in df_in.columns]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"缺少特徵欄位：{missing}")
 
-    # 取最後一天一筆來預測（並保證欄位順序一致）
-    x_last = x_in.iloc[[-1]]
+        # 日期轉換（失敗回 400）
+        try:
+            df_in["日期"] = pd.to_datetime(df_in["日期"])
+        except Exception:
+            raise HTTPException(status_code=400, detail="日期格式錯誤，請用 YYYY-MM-DD")
 
-    p1 = float(models["1d"].predict_proba(x_last)[0, 1])
-    p5 = float(models["5d"].predict_proba(x_last)[0, 1])
-    p20 = float(models["20d"].predict_proba(x_last)[0, 1])
+        # 排序 + 前值填補
+        df_in = df_in.sort_values("日期").ffill()
 
-    return {
-        "prob_1d": p1, "label_1d": int(p1 >= 0.5),
-        "prob_1d": p5, "label_5d": int(p1 >= 0.5),
-        "prob_1d": p20, "label_20d": int(p1 >= 0.5),
-    }
+        # 取特徵並確保欄位順序一致
+        x_in = df_in[feature_cols].copy()
+
+        # 把所有特徵轉成數字
+        try:
+            x_in = x_in.apply(pd.to_numeric, errors="raise")
+        except Exception:
+            raise HTTPException(status_code=400, detail="特徵欄位需為數值，偵測到無法轉成數字內容")
+
+        # 取最後一筆（保留 DataFrame 形狀）
+        x_last = x_in.iloc[[-1]]
+
+        # 三個模型推論（取 class=1 的機率）
+        p1 = float(models["1d"].predict_proba(x_last)[0, 1])
+        p5 = float(models["5d"].predict_proba(x_last)[0, 1])
+        p20 = float(models["20d"].predict_proba(x_last)[0, 1])
+
+        # 正確回傳 keys + 正確 label
+        return {
+            "prob_1d": p1, "label_1d": int(p1 >= 0.5),
+            "prob_5d": p5, "label_5d": int(p5 >= 0.5),
+            "prob_20d": p20, "label_20d": int(p20 >= 0.5),
+        }
+
+    except Exception as e:
+        print("PREDICT ERROR:", repr(e))
+        print(traceback.format_exc())
+        raise
